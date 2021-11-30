@@ -1,0 +1,189 @@
+package providers
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"time"
+
+	"github.com/blockpilabs/solana-drpc/rpc"
+	"github.com/valyala/fasthttp"
+)
+
+type HttpJsonRpcProviderOptions struct {
+	TimeoutSeconds uint32
+}
+
+type HttpJsonRpcProvider struct {
+	endpoint     string
+	path         string
+	options      *HttpJsonRpcProviderOptions
+	rpcProcessor RpcProviderProcessor
+}
+
+func NewHttpJsonRpcProvider(endpoint string, path string, options *HttpJsonRpcProviderOptions) *HttpJsonRpcProvider {
+	if options == nil {
+		logger.Fatalln("null HttpJsonRpcProviderOptions provided")
+		return nil
+	}
+	return &HttpJsonRpcProvider{
+		endpoint:     endpoint,
+		path:         path,
+		rpcProcessor: nil,
+		options:      options,
+	}
+}
+
+func (provider *HttpJsonRpcProvider) SetRpcProcessor(processor RpcProviderProcessor) {
+	provider.rpcProcessor = processor
+}
+
+func sendErrorResponse(fh *fasthttp.RequestCtx, err error, errCode int, requestId uint64) {
+	resErr := rpc.NewJSONRpcResponseError(errCode, err.Error(), nil)
+	errRes := rpc.NewJSONRpcResponse(requestId, nil, resErr)
+	errResBytes, encodeErr := json.Marshal(errRes)
+	if encodeErr != nil {
+		_, _ = fh.Write(errResBytes)
+	}
+}
+
+func (provider *HttpJsonRpcProvider) asyncWatchMessagesToConnection(ctx context.Context, connSession *rpc.ConnectionSession,
+	fh *fasthttp.RequestCtx, done chan struct{}) {
+	go func() {
+		defer func() {
+			done <- struct{}{}
+		}()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-connSession.ConnectionDone:
+				return
+			case rpcDispatch := <-connSession.RpcRequestsDispatchChannel:
+				if rpcDispatch == nil {
+					return
+				}
+				rpcRequestSession := rpcDispatch.Data
+				switch rpcDispatch.Type {
+				case rpc.RPC_REQUEST_CHANGE_TYPE_ADD_REQUEST:
+					rpcRequest := rpcRequestSession.Request
+					rpcRequestId := rpcRequest.Id
+					newChan := rpcRequestSession.RpcResponseFutureChan
+					if old, ok := connSession.RpcRequestsMap[rpcRequestId]; ok {
+						close(old)
+					}
+					connSession.RpcRequestsMap[rpcRequestId] = newChan
+				case rpc.RPC_REQUEST_CHANGE_TYPE_ADD_RESPONSE:
+					rpcRequest := rpcRequestSession.Request
+					rpcRequestId := rpcRequest.Id
+					rpcRequestSession.RpcResponseFutureChan = nil
+					if resChan, ok := connSession.RpcRequestsMap[rpcRequestId]; ok {
+						close(resChan)
+						delete(connSession.RpcRequestsMap, rpcRequestId)
+					}
+				}
+			case pack := <-connSession.RequestConnectionWriteChan:
+				if pack == nil {
+					return
+				}
+
+				_, err := fh.Write(pack.Message)
+				if err != nil {
+					logger.Warn("write response error", err)
+					return
+				}
+				return
+			case <-time.After(time.Duration(provider.options.TimeoutSeconds) * time.Second):
+				sendErrorResponse(fh, errors.New("timeout"), rpc.RPC_RESPONSE_TIMEOUT_ERROR, 0)
+				return
+			}
+		}
+	}()
+}
+
+func (provider *HttpJsonRpcProvider) watchConnectionMessages(ctx context.Context, connSession *rpc.ConnectionSession, message []byte) (err error) {
+	//body := r.Body
+	//defer body.Close()
+	//message, err := ioutil.ReadAll(body)
+	//if err != nil {
+	//	return
+	//}
+
+	//logger.Debugf("recv: %s\n", message)
+	rpcSession := rpc.NewJSONRpcRequestSession(connSession)
+
+	rpcReq, err := rpc.DecodeJSONRPCRequest(message)
+	if err != nil {
+		err = errors.New("jsonrpc request error" + err.Error())
+		return
+	}
+
+	rpcSession.FillRpcRequest(rpcReq, message)
+	err = provider.rpcProcessor.OnRpcRequest(connSession, rpcSession)
+	return
+}
+
+func (provider *HttpJsonRpcProvider) serverHandler(fh *fasthttp.RequestCtx) {
+	message := fh.Request.Body()
+
+	fh.Response.Header.Set("Access-Control-Allow-Origin", "*")
+	fh.Response.Header.Set("Access-Control-Allow-Methods", "GET, POST, PATCH, PUT, DELETE, OPTIONS")
+	fh.Response.Header.Set("Content-Type", "application/json")
+
+	method := string(fh.Method())
+	if method == http.MethodOptions {
+		_, _ = fh.Write([]byte("ok"))
+		return
+	}
+	if method != http.MethodPost {
+		resErr := rpc.NewJSONRpcResponseError(rpc.RPC_INTERNAL_ERROR, "only support POST method", nil)
+		errRes := rpc.NewJSONRpcResponse(0, nil, resErr)
+		errResBytes, encodeErr := json.Marshal(errRes)
+		if encodeErr != nil {
+			_, _ = fh.Write(errResBytes)
+		}
+		return
+	}
+
+	session := rpc.NewConnectionSession()
+	defer session.Close()
+	defer provider.rpcProcessor.OnConnectionClosed(session)
+
+
+	if connErr := provider.rpcProcessor.OnConnection(session); connErr != nil {
+		logger.Warn("OnConnection error", connErr)
+		return
+	}
+
+	ctx := context.Background()
+
+	err := provider.watchConnectionMessages(ctx, session, message)
+	if err != nil {
+		sendErrorResponse(fh, err, rpc.RPC_INTERNAL_ERROR, 0)
+		return
+	}
+
+	fh.Response.Header.Set("Upstream", *session.SelectedUpstreamTarget)
+
+
+	done := make(chan struct{})
+	provider.asyncWatchMessagesToConnection(ctx, session, fh, done)
+
+	select {
+	case <-done:
+		break
+	}
+}
+
+func (provider *HttpJsonRpcProvider) ListenAndServe() (err error) {
+	if provider.rpcProcessor == nil {
+		err = errors.New("please set provider.rpcProcessor before ListenAndServe")
+		return
+	}
+	wrappedHandler2 := func(ctx *fasthttp.RequestCtx) {
+		provider.serverHandler(ctx)
+	}
+	s := &fasthttp.Server{Handler: wrappedHandler2}
+	return s.ListenAndServe(provider.endpoint)
+}

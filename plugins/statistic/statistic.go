@@ -56,7 +56,7 @@ func (middleware *StatisticMiddleware) OnRpcRequest(session *rpc.JSONRpcRequestS
 	for _, key := range keys {
 		middleware.redisConnPool.Incr(key)
 	}
-	logger.Debug(methodName)
+	//logger.Debug(methodName)
 	return
 }
 func (middleware *StatisticMiddleware) OnRpcResponse(session *rpc.JSONRpcRequestSession) (err error) {

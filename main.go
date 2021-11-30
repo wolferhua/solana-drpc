@@ -21,7 +21,7 @@ func main() {
 	solana.StartCheckQueue()
 	solana.UpdateBestRPCNodes()
 
-	provider := providers.NewHttpJsonRpcProvider(":9191", "/", &providers.HttpJsonRpcProviderOptions{
+	provider := providers.NewHttpJsonRpcProvider(":9292", "/", &providers.HttpJsonRpcProviderOptions{
 		TimeoutSeconds: 30,
 	})
 	server := proxy.NewProxyServer(provider)

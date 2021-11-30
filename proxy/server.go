@@ -32,7 +32,7 @@ func NewProxyServer(provider providers.RpcProvider) *ProxyServer {
 
 func (server *ProxyServer) OnConnection(connSession *rpc.ConnectionSession) error {
 	server.Backend.OnConnection(connSession)
-	logger.Debug("OnConnection")
+	//logger.Debug("OnConnection")
 	return nil
 }
 
@@ -40,16 +40,21 @@ func (server *ProxyServer) OnConnectionClosed(connSession *rpc.ConnectionSession
 	// must ensure middleware chain not change after calling OnConnection,
 	// otherwise some removed middlewares may not call OnConnectionClosed
 	server.Backend.OnConnectionClosed(connSession)
-	logger.Debug("OnConnectionClosed")
+	//logger.Debug("OnConnectionClosed")
 	return nil
 }
 
 func (server *ProxyServer) OnRpcRequest(connSession *rpc.ConnectionSession, rpcSession *rpc.JSONRpcRequestSession) (err error) {
-	logger.Debug("OnRpcRequest")
+	//logger.Debug("OnRpcRequest")
 	server.Backend.OnRpcRequest(rpcSession)
-	server.Statistic.OnRpcRequest(rpcSession)
-
+	go server.Statistic.OnRpcRequest(rpcSession)
 	go func() {
+		defer func() {
+			if err:=recover(); err != nil {
+				logger.Error(err)
+			}
+		}()
+
 		server.Backend.ProcessRpcRequest(rpcSession)
 		if err != nil {
 			logger.Warn("ProcessRpcRequest error", err)
@@ -69,7 +74,6 @@ func (server *ProxyServer) OnRpcRequest(connSession *rpc.ConnectionSession, rpcS
 			logger.Error("encodeJSONRPCResponse err", err)
 			return
 		}
-
 
 		connSession.RequestConnectionWriteChan <- rpc.NewMessagePack(websocket.TextMessage, resBytes)
 	}()

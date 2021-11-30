@@ -1,7 +1,7 @@
 /**
  * Axios Request BaseUrl
  */
-window.axiosBaseUrl =''
+window.axiosBaseUrl = ''
 
 /**
  * Set Title
@@ -19,6 +19,6 @@ window.coinName = 'Solana'
 window.coinLogo = './img/coin-logo.svg'
 
 /**
- * Set RPC-URL for using
+ * Set Solana's rpc url
  */
 window.solana_rpc_url = 'https://public-rpc.blockpi.io/http/solana'

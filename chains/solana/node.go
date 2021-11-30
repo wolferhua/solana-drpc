@@ -122,7 +122,7 @@ func (p *Node) Check()  {
 	startTime := utils.CurrentTimestampMilli()
 
 	jsonReq := "{\"jsonrpc\":\"2.0\",\"id\":\"blockpi-drpc\", \"method\":\"getHealth\",\"params\": []}"
-	data := http.PostJson(p.GetRPCEndpoint(), jsonReq)
+	data,_ := http.PostJson(p.GetRPCEndpoint(), jsonReq)
 	if data != nil {
 		endTime := utils.CurrentTimestampMilli()
 		resp := rpc.JSONRpcResponse{}
@@ -149,7 +149,7 @@ func (p *Node) Check()  {
 		p.Healthy = true
 checkHeight:
 		jsonReq = "{\"jsonrpc\":\"2.0\",\"id\":\"blockpi-drpc\", \"method\":\"getBlockHeight\",\"params\": []}"
-		if data := http.PostJson(p.GetRPCEndpoint(), jsonReq); data != nil {
+		if data,_ := http.PostJson(p.GetRPCEndpoint(), jsonReq); data != nil {
 			resp := rpc.JSONRpcResponse{}
 			if err := json.Unmarshal(data, &resp); err == nil && resp.Error == nil {
 				p.Height = int64(resp.Result.(float64))

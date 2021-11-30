@@ -5,6 +5,7 @@ import (
 	"math"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -41,7 +42,7 @@ func InitNodeRedisPools(prefix, host, password string, database int) {
 
 func saveClusterNodes(endpoint string)  {
 	jsonReq := "{\"jsonrpc\":\"2.0\",\"id\":\"blockpi-drpc\", \"method\":\"getClusterNodes\",\"params\": []}"
-	data := http.PostJson(endpoint, jsonReq)
+	data,_ := http.PostJson(endpoint, jsonReq)
 	if data != nil {
 		resp := rpc.JSONRpcResponse{}
 		if err := json.Unmarshal(data, &resp); err == nil && resp.Error == nil {
@@ -201,7 +202,7 @@ func getBestRPCNodes() {
 			if v, err := conn.GetString(key); err == nil{
 				var node Node
 				if err := json.Unmarshal([]byte(v), &node); err == nil {
-					if node.Healthy && len(node.RPC) > 0 {
+					if node.Healthy && len(node.RPC) > 0 && !strings.Contains(node.RPC, "86.109.15.59"){
 						rpcNodes = append(rpcNodes, &node)
 					}
 				}

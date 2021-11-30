@@ -85,7 +85,7 @@ func (middleware *LoadBalanceMiddleware) selectTargetByWeight(groupName string) 
 		return nil
 	}
 
-	logger.Debugf("[load-balancer]select target %s", selectedUpStreamItem.TargetEndpoint)
+	//logger.Debugf("[load-balancer]select target %s", selectedUpStreamItem.TargetEndpoint)
 	return selectedUpStreamItem
 }
 
@@ -114,7 +114,7 @@ func (middleware *LoadBalanceMiddleware) OnRpcRequest(session *rpc.JSONRpcReques
 		err = errors.New("can't select one upstream target")
 		return
 	}
-	logger.Debugf("selected upstream target item id#%d endpoint: %s\n", selectedTargetItem.Id, selectedTargetItem.TargetEndpoint)
+	//logger.Debugf("selected upstream target item id#%d endpoint: %s\n", selectedTargetItem.Id, selectedTargetItem.TargetEndpoint)
 	session.Conn.SelectedUpstreamTarget = &selectedTargetItem.TargetEndpoint
 
 	return nil
